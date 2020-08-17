@@ -2,5 +2,7 @@ github.com/TutorialEdge/realtime-chat-go-react v0.0.0-20190507120001-b0798364f98
 github.com/arunsrinivas20/personal-finance-alerts v0.0.0-20200817020304-dc50c3198dab h1:amFYF9OTQkY/eabsICJ8170SibeVtsf/TjIGOWXivuc=
 github.com/arunsrinivas20/personal-finance-alerts v0.0.0-20200817020539-e0f97ddb0a6f h1:G62GuL2dN1UEGr5qJlFsTdMyx5GWN2Oevj8/wGWSvzg=
 github.com/arunsrinivas20/personal-finance-alerts v0.0.0-20200817020539-e0f97ddb0a6f/go.mod h1:C9Ky8V7J1w2o1Kokmjv2H610CdflixlorPbK2avHiR8=
+github.com/arunsrinivas20/personal-finance-alerts v0.0.0-20200817021516-03d071e24a6e h1:EeipF9CXfAmNo/JTCBEQI9tauWzomt+GuJzs2PQtT3o=
+github.com/arunsrinivas20/personal-finance-alerts v0.0.0-20200817021516-03d071e24a6e/go.mod h1:C9Ky8V7J1w2o1Kokmjv2H610CdflixlorPbK2avHiR8=
 github.com/gorilla/websocket v1.4.2 h1:+/TMaTYc4QFitKJxsQ7Yye35DkWvkdLcvGKqM+x0Ufc=
 github.com/gorilla/websocket v1.4.2/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
