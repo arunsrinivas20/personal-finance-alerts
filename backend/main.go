@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/arunsrinivas/personal-finance-alerts/pkg/websocket"
+	"github.com/arunsrinivas20/personal-finance-alerts/pkg/websocket"
 )
 
 func serveWs(w http.ResponseWriter, r *http.Request) {
