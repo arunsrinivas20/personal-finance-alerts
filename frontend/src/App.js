@@ -1,42 +1,80 @@
-import React, { Component } from "react";
+import React from "react";
+import { Router, Route, Switch } from "react-router-dom";
+import { Container } from "reactstrap";
+
+import Loading from "./components/Loading";
+import NavBar from "./components/NavBar";
+import Footer from "./components/Footer";
+import Home from "./views/Home";
+import Profile from "./views/Profile";
+import Accounts from "./views/Accounts";
+import { Auth0Context } from "@auth0/auth0-react";
+import history from "./utils/history";
+
+// styles
 import "./App.css";
-import { connect, sendMsg } from "./api";
 
-import Header from './components/Header/Header';
-import ChatHistory from './components/ChatHistory/ChatHistory';
+// fontawesome
+import initFontAwesome from "./utils/initFontAwesome";
+initFontAwesome();
 
-class App extends Component {
+class App extends React.Component {
+  static contextType = Auth0Context
+
   constructor(props) {
-    super(props);
+    super(props)
+
+    this.handleUpdateAcctInfo = this.handleUpdateAcctInfo.bind(this)
+
     this.state = {
-      chatHistory: []
+      accountInfo: []
     }
   }
 
-  componentDidMount() {
-    connect((msg) => {
-      console.log("New Message")
-      this.setState(prevState => ({
-        chatHistory: [...this.state.chatHistory, msg]
-      }))
-      console.log(this.state);
-    });
-  }
-
-  send() {
-    console.log("hello");
-    sendMsg("hello");
+  handleUpdateAcctInfo(newAcct) {
+    this.setState({
+      accountInfo: this.state.accountInfo.concat(newAcct)
+    })
   }
 
   render() {
+    const { isLoading, error } = this.context;
+
+    if (error) {
+      return <div>Oops... {error.message}</div>;
+    }
+
+    if (isLoading) {
+      return <Loading />;
+    }
+
     return (
-      <div className="App">
-        <Header />
-        <ChatHistory chatHistory={this.state.chatHistory} />
-        <button onClick={this.send}>Hit</button>
-      </div>
+      <Router history={history}>
+        <div id="app" className="d-flex flex-column h-100">
+          <NavBar />
+          <Container className="flex-grow-1 mt-5">
+            <Switch>
+              <Route 
+                path="/" 
+                exact 
+                render={(props) => (
+                  <Home {...props} />
+                )}
+              />
+              <Route path="/profile" component={Profile} />
+              <Route 
+                path="/accounts" 
+                render={(props) => (
+                  <Accounts {...props} accountInfo={this.state.accountInfo} handleUpdateAcctInfo={this.handleUpdateAcctInfo} />
+                )}
+              />
+            </Switch>
+          </Container>
+          <Footer />
+        </div>
+      </Router>
     );
-  } 
-}
+  }
+};
 
 export default App;

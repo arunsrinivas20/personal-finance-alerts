@@ -1,20 +1,25 @@
 {
-  "name": "frontend",
+  "name": "auth0-react-sample",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "react-scripts start",
+    "start": "npm-run-all --parallel spa api-server",
     "build": "react-scripts build",
-    "test": "react-scripts test",
+    "test": "react-scripts test --env=jest-environment-jsdom-sixteen",
     "eject": "react-scripts eject",
-    "spa": "react-scripts start"
+    "spa": "react-scripts start",
+    "server": "node server.js",
+    "server:dev": "nodemon server.js",
+    "api-server": "node api-server.js",
+    "api-server:dev": "nodemon api-server.js",
+    "dev": "npm-run-all --parallel spa api-server:dev",
+    "prod": "npm-run-all --parallel server api-server"
   },
   "dependencies": {
     "@auth0/auth0-react": "^1.0.0",
     "@fortawesome/fontawesome-svg-core": "^1.2.17",
     "@fortawesome/free-solid-svg-icons": "^5.8.1",
-    "@fortawesome/react-fontawesome": "^0.1.4",
-    "axios": "^0.20.0",
+    "@fortawesome/react-fontawesome": "^0.1.11",
     "cors": "^2.8.5",
     "express": "^4.16.4",
     "express-jwt": "^6.0.0",
@@ -23,13 +28,10 @@
     "jwks-rsa": "^1.4.0",
     "morgan": "^1.9.1",
     "npm-run-all": "^4.1.5",
-    "plaid": "^7.0.0",
     "react": "^16.8.6",
     "react-dom": "^16.8.6",
-    "react-plaid-link": "^3.0.0",
     "react-router-dom": "^5.0.0",
     "react-scripts": "^3.4.0",
-    "react-table": "^7.5.0",
     "reactstrap": "^8.0.0"
   },
   "devDependencies": {
