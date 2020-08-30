@@ -24,3 +24,13 @@ export function createAccountData(accounts, transactions) {
 
     return accountsInfo
 }
+
+export function getTotalBankBalance(accounts) {
+    var balance = 0.0
+    for (var i in accounts) {
+        var acct = accounts[i]
+        balance += acct.balances.current
+    }
+
+    return balance
+}

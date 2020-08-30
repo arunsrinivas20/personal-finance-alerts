@@ -13,8 +13,6 @@ import (
 	"github.com/plaid/plaid-go/plaid"
 )
 
-const ()
-
 var client = func() *plaid.Client {
 	client, err := plaid.NewClient(plaid.ClientOptions{
 		PLAID_CLIENT_ID,
@@ -66,6 +64,19 @@ var transactionsDb = func() *sql.DB {
 	return db
 }()
 
+func queryAllAcctsById(user_id uint64) (*sql.Rows, error) {
+	println("QUERY ALL USER'S ACCOUNTS")
+
+	query_res, err := transactionsDb.Query(`SELECT institution_name, access_token FROM userInstitutionInfo 
+												WHERE user_id = $1`, user_id)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return query_res, nil
+}
+
 func insertNewAccount(user_id uint64, inst_id string, inst_name string, accessToken string) error {
 	println("INSERT NEW ACCOUNT")
 	query_prep, err := transactionsDb.Prepare(`INSERT INTO userInstitutionInfo 
@@ -103,7 +114,7 @@ func queryUserIdByEmail(email string, queried_user_id *uint64) error {
 
 func insertNewUserReturnId(email string, queried_user_id *uint64) error {
 	println("INSERT NEW USER")
-	//var queried_user_id_temp int64 = 0
+
 	insert_res := transactionsDb.QueryRow("INSERT INTO userInfo (email) VALUES ($1) RETURNING user_id", email)
 	err := insert_res.Scan(queried_user_id)
 
@@ -114,10 +125,52 @@ func insertNewUserReturnId(email string, queried_user_id *uint64) error {
 	return nil
 }
 
+func queryLinkedUserAccts(email string) (map[string]string, error) {
+	var user_id uint64 = 0
+	var result = make(map[string]string)
+
+	query_err := queryUserIdByEmail(email, &user_id)
+
+	if query_err != nil {
+		return nil, query_err
+	}
+
+	query_accts, query_accts_err := queryAllAcctsById(user_id)
+
+	if query_accts_err != nil {
+		return nil, query_accts_err
+	}
+
+	defer query_accts.Close()
+
+	for query_accts.Next() {
+		var inst_name string
+		var accessToken string
+
+		err := query_accts.Scan(&inst_name, &accessToken)
+		if err != nil {
+			return nil, err
+		}
+
+		result[inst_name] = accessToken
+	}
+	// get any error encountered during iteration
+	err := query_accts.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // We store the access_token in memory - in production, store it in a secure
 // persistent data store.
 var accessToken string
 var itemID string
+
+type All_Linked_Accts_Req struct {
+	Email string `form:"email" json:"email" binding:"required"`
+}
 
 type Public_Token_Req struct {
 	Public_Token     string `form:"public_token" json:"public_token" binding:"required"`
@@ -221,7 +274,6 @@ func transactions(c *gin.Context) {
 		fmt.Println(query_err.Error())
 	}
 
-	// pull transactions for the past 30 days
 	endDate := time.Now().Local().Format("2006-01-02")
 	startDate := time.Now().Local().Add(-30 * 24 * time.Hour).Format("2006-01-02")
 
@@ -235,6 +287,42 @@ func transactions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"accounts":     response.Accounts,
 		"transactions": response.Transactions,
+	})
+}
+
+func getLinkedAccounts(c *gin.Context) {
+	endDate := time.Now().Local().Format("2006-01-02")
+	startDate := time.Now().Local().Add(-30 * 24 * time.Hour).Format("2006-01-02")
+
+	linked_accts_req := All_Linked_Accts_Req{}
+	response := make(map[string]interface{})
+	resp_err := ""
+
+	if err := c.ShouldBind(&linked_accts_req); err != nil {
+		fmt.Println(err.Error())
+	}
+
+	email := linked_accts_req.Email
+
+	res, err := queryLinkedUserAccts(email)
+	if err != nil {
+		fmt.Println(err.Error())
+		resp_err = err.Error()
+	}
+
+	for inst_name, accessToken := range res {
+		transactions, err := client.GetTransactions(accessToken, startDate, endDate)
+		if err != nil {
+			resp_err = "Could not fetch all accounts"
+			continue
+		}
+
+		response[inst_name] = transactions
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"accountsInfo": response,
+		"error":        resp_err,
 	})
 }
 
@@ -415,6 +503,7 @@ func setupHandlers(api *gin.RouterGroup) {
 	api.GET("/investment_transactions", investmentTransactions)
 	api.GET("/holdings", holdings)
 	api.GET("/assets", assets)
+	api.POST("/all_linked_accounts", getLinkedAccounts)
 }
 
 func main() {
