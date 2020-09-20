@@ -2,10 +2,16 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/arunsrinivas20/personal-finance-alerts/backend/db_actions"
+	"github.com/arunsrinivas20/personal-finance-alerts/backend/msg_structs"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -13,154 +19,48 @@ import (
 	"github.com/plaid/plaid-go/plaid"
 )
 
-var client = func() *plaid.Client {
-	client, err := plaid.NewClient(plaid.ClientOptions{
-		PLAID_CLIENT_ID,
-		PLAID_SECRET,
-		PLAID_ENV,
+type App_Info struct {
+	PLAID_CLIENT_ID     string
+	PLAID_SECRET        string
+	PLAID_PRODUCTS      string
+	PLAID_COUNTRY_CODES string
+	PLAID_REDIRECT_URI  string
+	APP_PORT            string
+	PLAID_ENV           plaid.Environment
+}
+
+var (
+	client   *plaid.Client
+	app_info App_Info
+)
+
+func initClient() {
+	cl, err := plaid.NewClient(plaid.ClientOptions{
+		app_info.PLAID_CLIENT_ID,
+		app_info.PLAID_SECRET,
+		app_info.PLAID_ENV,
 		&http.Client{},
 	})
 	if err != nil {
 		panic(fmt.Errorf("unexpected error while initializing plaid client %w", err))
 	}
-	return client
-}()
 
-var transactionsDb = func() *sql.DB {
-	dbinfo := fmt.Sprintf("user=%s dbname=%s sslmode=disable", DB_USER, DB_NAME)
-	db, err := sql.Open("postgres", dbinfo)
-	if err != nil {
-		panic(fmt.Errorf("unexpected error while initializing database %w", err))
-	}
-
-	err = db.Ping()
-	if err != nil {
-		fmt.Println(err.Error())
-	}
-
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS userInfo(	
-						user_id SERIAL PRIMARY KEY,
-						email TEXT NOT NULL);`)
-
-	if err != nil {
-		fmt.Println(err.Error())
-	}
-
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS userInstitutionInfo(
-						user_inst_id SERIAL PRIMARY KEY,	
-						institution_name TEXT NOT NULL,
-						institution_id TEXT NOT NULL,
-						access_token TEXT NOT NULL, 
-						user_id INT NOT NULL,
-						CONSTRAINT fk_user
-							FOREIGN KEY(user_id) 
-							REFERENCES userInfo(user_id)
-							ON DELETE CASCADE);`)
-
-	if err != nil {
-		fmt.Println(err.Error())
-	}
-
-	return db
-}()
-
-func queryAllAcctsById(user_id uint64) (*sql.Rows, error) {
-	println("QUERY ALL USER'S ACCOUNTS")
-
-	query_res, err := transactionsDb.Query(`SELECT institution_name, access_token FROM userInstitutionInfo 
-												WHERE user_id = $1`, user_id)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return query_res, nil
+	client = cl
 }
 
-func insertNewAccount(user_id uint64, inst_id string, inst_name string, accessToken string) error {
-	println("INSERT NEW ACCOUNT")
-	query_prep, err := transactionsDb.Prepare(`INSERT INTO userInstitutionInfo 
-												(institution_name,institution_id,
-												access_token,user_id) VALUES ($1,$2,$3,$4)`)
-	if err != nil {
-		return err
-	}
-
-	_, err = query_prep.Exec(inst_name, inst_id, accessToken, user_id)
+func getAppInfo() {
+	jsonFile, err := os.Open("app_info.json")
+	byteValue, _ := ioutil.ReadAll(jsonFile)
 
 	if err != nil {
-		return err
+		fmt.Println(err)
 	}
 
-	return nil
-}
+	defer jsonFile.Close()
 
-func queryAccessToken(user_id uint64, inst_id string, inst_name string, accessToken *string) error {
-	println("QUERY ACCESS TOKEN")
-	query_res := transactionsDb.QueryRow(`SELECT access_token FROM userInstitutionInfo 
-											WHERE user_id = $1
-											AND institution_id = $2
-											AND institution_name = $3`, user_id, inst_id, inst_name)
+	json.Unmarshal(byteValue, &app_info)
 
-	return query_res.Scan(accessToken)
-}
-
-func queryUserIdByEmail(email string, queried_user_id *uint64) error {
-	println("QUERY USER ID")
-	query_res := transactionsDb.QueryRow("SELECT user_id FROM userInfo WHERE email = $1", email)
-
-	return query_res.Scan(queried_user_id)
-}
-
-func insertNewUserReturnId(email string, queried_user_id *uint64) error {
-	println("INSERT NEW USER")
-
-	insert_res := transactionsDb.QueryRow("INSERT INTO userInfo (email) VALUES ($1) RETURNING user_id", email)
-	err := insert_res.Scan(queried_user_id)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func queryLinkedUserAccts(email string) (map[string]string, error) {
-	var user_id uint64 = 0
-	var result = make(map[string]string)
-
-	query_err := queryUserIdByEmail(email, &user_id)
-
-	if query_err != nil {
-		return nil, query_err
-	}
-
-	query_accts, query_accts_err := queryAllAcctsById(user_id)
-
-	if query_accts_err != nil {
-		return nil, query_accts_err
-	}
-
-	defer query_accts.Close()
-
-	for query_accts.Next() {
-		var inst_name string
-		var accessToken string
-
-		err := query_accts.Scan(&inst_name, &accessToken)
-		if err != nil {
-			return nil, err
-		}
-
-		result[inst_name] = accessToken
-	}
-	// get any error encountered during iteration
-	err := query_accts.Err()
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	app_info.PLAID_ENV = plaid.Sandbox
 }
 
 // We store the access_token in memory - in production, store it in a secure
@@ -168,33 +68,13 @@ func queryLinkedUserAccts(email string) (map[string]string, error) {
 var accessToken string
 var itemID string
 
-type All_Linked_Accts_Req struct {
-	Email string `form:"email" json:"email" binding:"required"`
-}
-
-type Public_Token_Req struct {
-	Public_Token     string `form:"public_token" json:"public_token" binding:"required"`
-	Email            string `form:"email" json:"email" binding:"required"`
-	Institution_Id   string `form:"institution_id" json:"institution_id" binding:"required"`
-	Institution_Name string `form:"institution_name" json:"institution_name" binding:"required"`
-}
-
-type Transactions_Req struct {
-	Email            string `form:"email" json:"email" binding:"required"`
-	Institution_Id   string `form:"institution_id" json:"institution_id" binding:"required"`
-	Institution_Name string `form:"institution_name" json:"institution_name" binding:"required"`
-	// StartDate         string
-	// EndDate           string
-	// Transaction_Types []string
-}
-
 func getAccessToken(c *gin.Context) {
 	var accessTokExists bool = false
 	var accessToken string = ""
 	var queried_user_id uint64 = 0
 	var httpErrorMsg string = ""
 
-	pub_req := Public_Token_Req{}
+	pub_req := msg_structs.Public_Token_Req{}
 	if err := c.ShouldBind(&pub_req); err != nil {
 		fmt.Println(err.Error())
 	}
@@ -209,18 +89,18 @@ func getAccessToken(c *gin.Context) {
 	fmt.Println("institution_id: " + institution_id)
 	fmt.Println("institution_name: " + institution_name)
 
-	query_err := queryUserIdByEmail(email, &queried_user_id)
+	query_err := db_actions.QueryUserIdByEmail(email, &queried_user_id)
 
 	switch query_err {
 	case nil:
 		fmt.Println(queried_user_id)
-		query_err = queryAccessToken(queried_user_id, institution_id, institution_name, &accessToken)
+		query_err = db_actions.QueryAccessToken(queried_user_id, institution_id, institution_name, &accessToken)
 		if query_err != nil {
 			fmt.Println(query_err.Error())
 		}
 		accessTokExists = accessToken != ""
 	case sql.ErrNoRows:
-		insert_err := insertNewUserReturnId(email, &queried_user_id)
+		insert_err := db_actions.InsertNewUserReturnId(email, &queried_user_id)
 		if insert_err != nil {
 			fmt.Println(insert_err.Error())
 		}
@@ -237,7 +117,7 @@ func getAccessToken(c *gin.Context) {
 		accessToken = response.AccessToken
 		itemID = response.ItemID
 
-		err = insertNewAccount(queried_user_id, institution_id, institution_name, accessToken)
+		err = db_actions.InsertNewAccount(queried_user_id, institution_id, institution_name, accessToken)
 	}
 
 	fmt.Println("access token: " + accessToken)
@@ -255,7 +135,7 @@ func transactions(c *gin.Context) {
 	var accessToken string = ""
 	var user_id uint64 = 0
 
-	trans_req := Transactions_Req{}
+	trans_req := msg_structs.Transactions_Req{}
 	if err := c.ShouldBind(&trans_req); err != nil {
 		fmt.Println(err.Error())
 	}
@@ -264,12 +144,12 @@ func transactions(c *gin.Context) {
 	institution_id := trans_req.Institution_Id
 	institution_name := trans_req.Institution_Name
 
-	query_err := queryUserIdByEmail(email, &user_id)
+	query_err := db_actions.QueryUserIdByEmail(email, &user_id)
 	if query_err != nil {
 		fmt.Println(query_err.Error())
 	}
 
-	query_err = queryAccessToken(user_id, institution_id, institution_name, &accessToken)
+	query_err = db_actions.QueryAccessToken(user_id, institution_id, institution_name, &accessToken)
 	if query_err != nil {
 		fmt.Println(query_err.Error())
 	}
@@ -294,7 +174,7 @@ func getLinkedAccounts(c *gin.Context) {
 	endDate := time.Now().Local().Format("2006-01-02")
 	startDate := time.Now().Local().Add(-30 * 24 * time.Hour).Format("2006-01-02")
 
-	linked_accts_req := All_Linked_Accts_Req{}
+	linked_accts_req := msg_structs.All_Linked_Accts_Req{}
 	response := make(map[string]interface{})
 	resp_err := ""
 
@@ -304,7 +184,7 @@ func getLinkedAccounts(c *gin.Context) {
 
 	email := linked_accts_req.Email
 
-	res, err := queryLinkedUserAccts(email)
+	res, err := db_actions.QueryLinkedUserAccts(email)
 	if err != nil {
 		fmt.Println(err.Error())
 		resp_err = err.Error()
@@ -425,7 +305,7 @@ func info(context *gin.Context) {
 	context.JSON(200, map[string]interface{}{
 		"item_id":      itemID,
 		"access_token": accessToken,
-		"products":     strings.Split(PLAID_PRODUCTS, ","),
+		"products":     strings.Split(app_info.PLAID_PRODUCTS, ","),
 	})
 }
 
@@ -451,9 +331,9 @@ func (httpError *httpError) Error() string {
 func linkTokenCreate(
 	paymentInitiation *plaid.PaymentInitiation,
 ) (string, *httpError) {
-	countryCodes := strings.Split(PLAID_COUNTRY_CODES, ",")
-	products := strings.Split(PLAID_PRODUCTS, ",")
-	redirectURI := PLAID_REDIRECT_URI
+	countryCodes := strings.Split(app_info.PLAID_COUNTRY_CODES, ",")
+	products := strings.Split(app_info.PLAID_PRODUCTS, ",")
+	redirectURI := app_info.PLAID_REDIRECT_URI
 	configs := plaid.LinkTokenConfigs{
 		User: &plaid.LinkTokenUser{
 			// This should correspond to a unique id for the current user.
@@ -507,6 +387,12 @@ func setupHandlers(api *gin.RouterGroup) {
 }
 
 func main() {
+	getAppInfo()
+
+	initClient()
+
+	db_actions.Init_Db()
+
 	router := gin.Default()
 	router.Use(cors.Default())
 
@@ -514,7 +400,7 @@ func main() {
 
 	setupHandlers(api)
 
-	err := router.Run(":" + APP_PORT)
+	err := router.Run(":" + app_info.APP_PORT)
 	if err != nil {
 		panic("unable to start server")
 	}
